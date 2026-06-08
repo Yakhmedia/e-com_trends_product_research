@@ -27,8 +27,11 @@ export default withSentryConfig(nextConfig, {
   project: "e-com_trends_product_research",
   silent: !process.env.CI,
   widenClientFileUpload: true,
-  reactComponentAnnotation: { enabled: true },
   tunnelRoute: "/monitoring",
   sourcemaps: { disable: false },
-  disableLogger: true,
+  // Replaced deprecated options with current equivalents
+  webpack: {
+    treeshake: { removeDebugLogging: true },
+    reactComponentAnnotation: { enabled: true },
+  },
 });

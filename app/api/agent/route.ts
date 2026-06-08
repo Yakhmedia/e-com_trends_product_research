@@ -5,7 +5,12 @@ import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { ChatMessage, TrendsData } from "@/lib/types";
 import { classifyTrend } from "@/lib/trend-classifier";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy — instantiated on first request, not at module load (prevents build crash)
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; reset: number }>();
@@ -127,7 +132,7 @@ Rising topics: ${trends.related_topics_rising.slice(0, 3).map((t) => t.query).jo
 
 ${kbContext ? `━━━ KNOWLEDGE BASE CONTEXT ━━━\n${kbContext}` : ""}`;
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: systemPrompt },
