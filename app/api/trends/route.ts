@@ -1,12 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getAdminUser, createSupabaseServerClient } from "@/lib/auth";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { TrendsData, TimelineDataPoint, RegionData, RelatedQuery } from "@/lib/types";
 
 const SERP_API_KEY = process.env.SERP_API_KEY!;
 
-// SerpAPI requires a separate request per data_type.
-// Each call returns only the data for that type.
-// `date` maps to SerpAPI's `date` param: "today 12-m", "today 5-y", "2022-01-01 2022-12-31", etc.
+// ── Rate limiting (in-memory — acceptable for single-instance / low traffic) ─
+const rateLimitMap = new Map<string, { count: number; reset: number }>();
+const RATE_LIMIT = 30;          // requests per window
+const RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(userId);
+  if (!entry || now > entry.reset) {
+    rateLimitMap.set(userId, { count: 1, reset: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// ── Input validation ─────────────────────────────────────────────────────────
+const ALLOWED_DATE_PATTERNS = [
+  /^today \d+-[mhd]$/,
+  /^now \d+-[Hd]$/,
+  /^\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2}$/,
+];
+
+function validateKeyword(kw: string): string | null {
+  if (!kw || kw.length > 100) return "Keyword must be 1–100 characters";
+  if (!/^[\w\s\-'.&]+$/u.test(kw)) return "Keyword contains invalid characters";
+  return null;
+}
+
+function validateDate(date: string): string | null {
+  if (ALLOWED_DATE_PATTERNS.some((p) => p.test(date))) return null;
+  return "Invalid date range format";
+}
+
+// ── SerpAPI helpers ──────────────────────────────────────────────────────────
 function serpUrl(keyword: string, dataType: string, date: string) {
   return (
     `https://serpapi.com/search.json?engine=google_trends` +
@@ -27,8 +61,6 @@ async function safeFetch(url: string): Promise<Record<string, unknown>> {
   }
 }
 
-// ── TIMESERIES ──────────────────────────────────────────────────────────────
-// Response shape: { interest_over_time: { timeline_data: [ { date, values: [{query, value, extracted_value}] } ] } }
 function extractTimeline(data: Record<string, unknown>): TimelineDataPoint[] {
   const iot = data?.interest_over_time as Record<string, unknown> | undefined;
   const rows = iot?.timeline_data as Record<string, unknown>[] | undefined;
@@ -42,19 +74,13 @@ function extractTimeline(data: Record<string, unknown>): TimelineDataPoint[] {
   });
 }
 
-// ── GEO_MAP ─────────────────────────────────────────────────────────────────
-// Response shape: { interest_by_region: [ { location, max_value_index, value, extracted_value } ] }
-// Note: top-level array, NOT nested under a .regions key.
 function extractRegions(data: Record<string, unknown>): RegionData[] {
-  // SerpAPI returns interest_by_region as a direct array
   const raw = data?.interest_by_region;
   const regions = Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
   if (!regions.length) return [];
-
   return regions
     .map((r) => ({
       location: r.location as string,
-      // extracted_value is the 0-100 normalised score
       value: (r.extracted_value as number) ?? (r.value as number) ?? 0,
     }))
     .filter((r) => r.location && r.value > 0)
@@ -62,8 +88,6 @@ function extractRegions(data: Record<string, unknown>): RegionData[] {
     .slice(0, 15);
 }
 
-// ── RELATED_QUERIES ──────────────────────────────────────────────────────────
-// Response shape: { related_queries: { top: [{query, value, extracted_value, link}], rising: [...] } }
 function extractQueries(data: Record<string, unknown>, type: "top" | "rising"): RelatedQuery[] {
   const rq = data?.related_queries as Record<string, unknown> | undefined;
   const rows = rq?.[type] as Record<string, unknown>[] | undefined;
@@ -75,18 +99,12 @@ function extractQueries(data: Record<string, unknown>, type: "top" | "rising"): 
   }));
 }
 
-// ── RELATED_TOPICS ───────────────────────────────────────────────────────────
-// Response shape: { related_topics: { top: [{topic:{title,type}, value:"100", extracted_value:100}],
-//                                     rising: [{..., value:"Breakout", extracted_value:24800}] } }
-// For rising, `value` is the human-readable label ("Breakout" or "+XX%").
-// For top, `value` is a numeric string "100".
 function extractTopics(data: Record<string, unknown>, type: "top" | "rising"): RelatedQuery[] {
   const rt = data?.related_topics as Record<string, unknown> | undefined;
   const rows = rt?.[type] as Record<string, unknown>[] | undefined;
   if (!rows?.length) return [];
   return rows.slice(0, 10).map((t) => {
     const topic = t.topic as Record<string, string> | undefined;
-    // Use the human-readable `value` string directly ("Breakout", "+190%", "100")
     const displayValue = String(t.value ?? t.extracted_value ?? "");
     return {
       query: topic?.title ?? (t.query as string) ?? "",
@@ -97,15 +115,36 @@ function extractTopics(data: Record<string, unknown>, type: "top" | "rising"): R
 }
 
 export async function GET(req: NextRequest) {
+  // ── Auth guard (defense-in-depth after middleware) ─────────────────────────
+  const user = await getAdminUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+  if (!checkRateLimit(user.id)) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded. Max 30 searches per hour." },
+      { status: 429, headers: { "Retry-After": "3600" } }
+    );
+  }
+
+  // ── Input validation ───────────────────────────────────────────────────────
   const keyword  = req.nextUrl.searchParams.get("keyword");
   const dateParam = req.nextUrl.searchParams.get("date") ?? "today 12-m";
+
   if (!keyword) return NextResponse.json({ error: "keyword required" }, { status: 400 });
 
   const kw = keyword.toLowerCase().trim();
+  const kwError = validateKeyword(kw);
+  if (kwError) return NextResponse.json({ error: kwError }, { status: 400 });
 
-  // ── Cache check (keyed on keyword + date_range) ────────────────────────────
+  const dateError = validateDate(dateParam);
+  if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+
+  // ── Cache check — use admin client to bypass RLS for reads ─────────────────
+  const adminClient = getSupabaseAdminClient();
   const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
-  const { data: cached } = await supabase
+
+  const { data: cached } = await adminClient
     .from("trends")
     .select("*")
     .eq("keyword", kw)
@@ -115,14 +154,12 @@ export async function GET(req: NextRequest) {
     .limit(1)
     .single();
 
-  if (cached) {
-    return NextResponse.json({ data: cached, cached: true });
-  }
+  if (cached) return NextResponse.json({ data: cached, cached: true });
 
-  // ── Parallel SerpAPI calls (one per data_type) ──────────────────────────
+  // ── Parallel SerpAPI calls ─────────────────────────────────────────────────
   const [timelineData, geoData, queriesData, topicsData] = await Promise.all([
-    safeFetch(serpUrl(kw, "TIMESERIES",     dateParam)),
-    safeFetch(serpUrl(kw, "GEO_MAP_0",      dateParam)),  // GEO_MAP_0 = country-level
+    safeFetch(serpUrl(kw, "TIMESERIES",      dateParam)),
+    safeFetch(serpUrl(kw, "GEO_MAP_0",       dateParam)),
     safeFetch(serpUrl(kw, "RELATED_QUERIES", dateParam)),
     safeFetch(serpUrl(kw, "RELATED_TOPICS",  dateParam)),
   ]);
@@ -138,15 +175,14 @@ export async function GET(req: NextRequest) {
     related_topics_rising:  extractTopics(topicsData, "rising"),
   };
 
-  // ── Save to Supabase ───────────────────────────────────────────────────────
-  const { data: saved, error } = await supabase
+  // ── Save to Supabase via admin client ──────────────────────────────────────
+  const { data: saved, error } = await adminClient
     .from("trends")
     .insert(trendsData)
     .select()
     .single();
 
   if (error) {
-    // Still return the data even if Supabase save fails
     console.error("Supabase insert error:", error.message);
     return NextResponse.json({ data: trendsData, cached: false });
   }

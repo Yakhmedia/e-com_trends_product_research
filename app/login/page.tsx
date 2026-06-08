@@ -38,10 +38,11 @@ function LoginForm() {
       return;
     }
 
+    // Only upsert id + email — never self-assign role.
+    // Admin role must be granted directly in the database by a DBA.
     await supabase.from("profiles").upsert({
       id: data.user.id,
       email: data.user.email ?? email,
-      role: "admin",
     }, { onConflict: "id" });
 
     router.replace(redirectTo);

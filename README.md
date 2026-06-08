@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# E-Commerce Product Trends Dashboard
 
-## Getting Started
+An admin-only internal tool for e-commerce product research powered by Google Trends, Supabase, and OpenAI.
 
-First, run the development server:
+**Features:** Trend charts · Region interest maps · Related queries · AI Research Analyst agent · Trend classification (Evergreen / Seasonal / etc.) · 3 themes × 2 modes · Keyword comparison · Search history
+
+---
+
+## Local development
 
 ```bash
+# 1. Clone
+git clone https://github.com/Yakhmedia/e-com_trends_product_research.git
+cd e-com_trends_product_research
+
+# 2. Install dependencies
+npm install
+
+# 3. Set up environment variables
+cp .env.example .env.local
+# Fill in all values in .env.local
+
+# 4. Run migrations in Supabase SQL editor (in order):
+#    supabase/migrations/001_create_trends.sql
+#    supabase/migrations/002_profiles.sql
+#    supabase/migrations/003_add_date_range.sql
+#    supabase/migrations/004_knowledge_base.sql
+#    supabase/migrations/005_production_rls.sql
+
+# 5. Create your admin user in Supabase Auth, then run in SQL editor:
+#    INSERT INTO profiles (id, email, role)
+#    VALUES ('<your-auth-user-uuid>', 'you@example.com', 'admin')
+#    ON CONFLICT (id) DO UPDATE SET role = 'admin';
+
+# 6. Start dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy to Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Push to GitHub
+2. Import repo at [vercel.com](https://vercel.com)
+3. Set all environment variables from `.env.example` in the Vercel dashboard
+4. Deploy
 
-## Learn More
+**Required env vars on Vercel:**
 
-To learn more about Next.js, take a look at the following resources:
+| Variable | Notes |
+|----------|-------|
+| `NEXT_PUBLIC_SUPABASE_URL` | From Supabase project settings |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | From Supabase project settings |
+| `SUPABASE_SERVICE_ROLE_KEY` | From Supabase project settings — keep secret |
+| `SERP_API_KEY` | From serpapi.com |
+| `OPENAI_API_KEY` | From platform.openai.com |
+| `NEXT_PUBLIC_SENTRY_DSN` | Optional — from sentry.io |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Supabase production checklist
 
-## Deploy on Vercel
+- [ ] Run all 5 migrations in order
+- [ ] Set Site URL to your production domain
+- [ ] Disable public email signups (Auth → Providers → Email)
+- [ ] Create admin user manually; grant role via SQL (never via the app)
+- [ ] Verify RLS is enabled on all tables
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Stack
+
+- **Next.js 16** (App Router, Turbopack)
+- **TypeScript** · **Tailwind CSS v4**
+- **Supabase** (Postgres + Auth + RLS)
+- **SerpAPI** (Google Trends)
+- **OpenAI GPT-4o mini**
+- **Recharts** · **Sentry**
