@@ -1,26 +1,212 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAILWIND V4 — Register semantic color tokens that map to CSS variables.
+   `@theme inline` keeps them as var() references so they respond to
+   runtime data-attribute theme switching.
+═══════════════════════════════════════════════════════════════════════════ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-theme-bg:             var(--t-bg);
+  --color-theme-surface:        var(--t-surface);
+  --color-theme-elevated:       var(--t-elevated);
+  --color-theme-accent:         var(--t-accent);
+  --color-theme-accent-hover:   var(--t-accent-hover);
+  --color-theme-accent-soft:    var(--t-accent-soft);
+  --color-theme-border:         var(--t-border);
+  --color-theme-border-accent:  var(--t-border-accent);
+  --color-theme-text:           var(--t-text);
+  --color-theme-muted:          var(--t-muted);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASE STYLES
+═══════════════════════════════════════════════════════════════════════════ */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--t-bg);
+  color: var(--t-text);
+  font-family: var(--t-font);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* Chart tooltip custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--t-surface); }
+::-webkit-scrollbar-thumb { background: var(--t-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--t-accent); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ██ EXECUTIVE THEME  ·  Gold · Montserrat · Luxury
+═══════════════════════════════════════════════════════════════════════════ */
+[data-theme="executive"][data-mode="dark"] {
+  --t-bg:            #0c0a07;
+  --t-surface:       #181410;
+  --t-elevated:      #231d16;
+  --t-accent:        #c9a227;
+  --t-accent-hover:  #e8c84a;
+  --t-accent-soft:   rgba(201,162,39,0.12);
+  --t-border:        #3a2e1e;
+  --t-border-accent: rgba(201,162,39,0.35);
+  --t-text:          #f5f0e8;
+  --t-muted:         #9a8a6a;
+  --t-shadow:        0 4px 32px rgba(201,162,39,0.15);
+  --t-font:          var(--font-montserrat, 'Montserrat'), sans-serif;
+}
+[data-theme="executive"][data-mode="light"] {
+  --t-bg:            #faf8f3;
+  --t-surface:       #ffffff;
+  --t-elevated:      #f2ebe0;
+  --t-accent:        #9a7a1a;
+  --t-accent-hover:  #c9a227;
+  --t-accent-soft:   rgba(154,122,26,0.10);
+  --t-border:        #e0d0a8;
+  --t-border-accent: rgba(154,122,26,0.30);
+  --t-text:          #1a1208;
+  --t-muted:         #7a6840;
+  --t-shadow:        0 4px 32px rgba(154,122,26,0.10);
+  --t-font:          var(--font-montserrat, 'Montserrat'), sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ██ OPS THEME  ·  Blue/Teal · Inter · Clean
+═══════════════════════════════════════════════════════════════════════════ */
+[data-theme="ops"][data-mode="dark"] {
+  --t-bg:            #0c1118;
+  --t-surface:       #131d2b;
+  --t-elevated:      #1a2840;
+  --t-accent:        #0ea5e9;
+  --t-accent-hover:  #38bdf8;
+  --t-accent-soft:   rgba(14,165,233,0.12);
+  --t-border:        #1e3a55;
+  --t-border-accent: rgba(14,165,233,0.30);
+  --t-text:          #e0f2fe;
+  --t-muted:         #5a90b8;
+  --t-shadow:        0 4px 32px rgba(14,165,233,0.12);
+  --t-font:          var(--font-inter, 'Inter'), sans-serif;
+}
+[data-theme="ops"][data-mode="light"] {
+  --t-bg:            #f0f7ff;
+  --t-surface:       #ffffff;
+  --t-elevated:      #e0eef9;
+  --t-accent:        #0369a1;
+  --t-accent-hover:  #0284c7;
+  --t-accent-soft:   rgba(3,105,161,0.10);
+  --t-border:        #bfd9f0;
+  --t-border-accent: rgba(3,105,161,0.25);
+  --t-text:          #0c2340;
+  --t-muted:         #3a6485;
+  --t-shadow:        0 4px 32px rgba(3,105,161,0.08);
+  --t-font:          var(--font-inter, 'Inter'), sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ██ STEALTH THEME  ·  Mint/Cyan · JetBrains Mono · Terminal
+═══════════════════════════════════════════════════════════════════════════ */
+[data-theme="stealth"][data-mode="dark"] {
+  --t-bg:            #0d0f0c;
+  --t-surface:       #131813;
+  --t-elevated:      #1a221a;
+  --t-accent:        #00e5b0;
+  --t-accent-hover:  #4dffd8;
+  --t-accent-soft:   rgba(0,229,176,0.10);
+  --t-border:        #1e3028;
+  --t-border-accent: rgba(0,229,176,0.30);
+  --t-text:          #d0f0e0;
+  --t-muted:         #4a7a62;
+  --t-shadow:        0 4px 32px rgba(0,229,176,0.12);
+  --t-font:          var(--font-jetbrains, 'JetBrains Mono'), monospace;
+}
+[data-theme="stealth"][data-mode="light"] {
+  --t-bg:            #f0faf6;
+  --t-surface:       #ffffff;
+  --t-elevated:      #e0f5ee;
+  --t-accent:        #00897b;
+  --t-accent-hover:  #00bfa5;
+  --t-accent-soft:   rgba(0,137,123,0.10);
+  --t-border:        #a8d8c8;
+  --t-border-accent: rgba(0,137,123,0.25);
+  --t-text:          #0d2018;
+  --t-muted:         #3a7060;
+  --t-shadow:        0 4px 32px rgba(0,137,123,0.08);
+  --t-font:          var(--font-jetbrains, 'JetBrains Mono'), monospace;
+}
+
+/* ── Default (Ops dark — matches original hardcoded palette) ── */
+:root {
+  --t-bg:            #0c1118;
+  --t-surface:       #131d2b;
+  --t-elevated:      #1a2840;
+  --t-accent:        #6366f1;
+  --t-accent-hover:  #818cf8;
+  --t-accent-soft:   rgba(99,102,241,0.12);
+  --t-border:        #1e3a55;
+  --t-border-accent: rgba(99,102,241,0.30);
+  --t-text:          #e0f2fe;
+  --t-muted:         #5a90b8;
+  --t-shadow:        0 4px 32px rgba(99,102,241,0.12);
+  --t-font:          system-ui, sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXECUTIVE THEME EXTRAS  (gold shadow on cards, rounded cards)
+═══════════════════════════════════════════════════════════════════════════ */
+[data-theme="executive"] .theme-card {
+  box-shadow: var(--t-shadow);
+  border-radius: 1rem;
+}
+[data-theme="executive"] .theme-btn {
+  box-shadow: 0 0 12px rgba(201,162,39,0.25);
+}
+
+/* STEALTH THEME EXTRAS  (terminal feel – square corners, monospace everywhere) */
+[data-theme="stealth"] .theme-card {
+  border-radius: 4px !important;
+}
+[data-theme="stealth"] .theme-btn {
+  border-radius: 4px !important;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+[data-theme="stealth"] input,
+[data-theme="stealth"] button {
+  border-radius: 4px !important;
+}
+
+/* Light mode — recharts / SVG text needs dark color */
+[data-mode="light"] .recharts-text { fill: var(--t-muted) !important; }
+[data-mode="light"] .recharts-cartesian-grid line { stroke: var(--t-border) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXPLICIT SEMANTIC UTILITIES
+   Defined directly so they work regardless of @theme inline compilation.
+═══════════════════════════════════════════════════════════════════════════ */
+@layer utilities {
+  /* Backgrounds */
+  .bg-theme-bg            { background-color: var(--t-bg); }
+  .bg-theme-surface       { background-color: var(--t-surface); }
+  .bg-theme-elevated      { background-color: var(--t-elevated); }
+  .bg-theme-accent        { background-color: var(--t-accent); }
+  .bg-theme-accent-hover  { background-color: var(--t-accent-hover); }
+  .bg-theme-accent-soft   { background-color: var(--t-accent-soft); }
+
+  /* Text */
+  .text-theme-text        { color: var(--t-text); }
+  .text-theme-muted       { color: var(--t-muted); }
+  .text-theme-accent      { color: var(--t-accent); }
+
+  /* Borders */
+  .border-theme-border        { border-color: var(--t-border); }
+  .border-theme-border-accent { border-color: var(--t-border-accent); }
+
+  /* Hover overrides */
+  .hover\:bg-theme-elevated:hover     { background-color: var(--t-elevated); }
+  .hover\:bg-theme-accent-soft:hover  { background-color: var(--t-accent-soft); }
+  .hover\:bg-theme-accent-hover:hover { background-color: var(--t-accent-hover); }
+  .hover\:text-theme-text:hover       { color: var(--t-text); }
+  .hover\:text-theme-accent:hover     { color: var(--t-accent); }
+  .hover\:border-theme-border-accent:hover { border-color: var(--t-border-accent); }
+
+  /* Focus ring */
+  .focus\:ring-theme-accent:focus { --tw-ring-color: var(--t-accent); }
+  .divide-theme-border > * + * { border-color: var(--t-border); }
 }
