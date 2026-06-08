@@ -5,9 +5,12 @@
 -- ============================================================
 
 -- ── trends table ─────────────────────────────────────────────
--- Drop the loose public insert policy left from 001
-DROP POLICY IF EXISTS "Allow public insert" ON trends;
-DROP POLICY IF EXISTS "Allow public read" ON trends;
+-- Drop ALL existing trends policies before recreating them cleanly
+DROP POLICY IF EXISTS "Allow public insert"         ON trends;
+DROP POLICY IF EXISTS "Allow public read"            ON trends;
+DROP POLICY IF EXISTS "Authenticated read trends"   ON trends;
+DROP POLICY IF EXISTS "Authenticated insert trends" ON trends;
+DROP POLICY IF EXISTS "Authenticated delete trends" ON trends;
 
 -- Authenticated users can read trends (history page)
 CREATE POLICY "Authenticated read trends" ON trends
@@ -22,13 +25,14 @@ CREATE POLICY "Authenticated delete trends" ON trends
   FOR DELETE USING (auth.role() = 'authenticated');
 
 -- ── profiles table ───────────────────────────────────────────
--- Users can read their own profile (middleware admin check)
-DROP POLICY IF EXISTS "Users can read own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can read own profile"              ON profiles;
+DROP POLICY IF EXISTS "Users update own profile"                ON profiles;
+DROP POLICY IF EXISTS "Users update own profile (no role change)" ON profiles;
+
 CREATE POLICY "Users can read own profile" ON profiles
   FOR SELECT USING (auth.uid() = id);
 
 -- Users can update their own profile BUT cannot change their role
-DROP POLICY IF EXISTS "Users update own profile" ON profiles;
 CREATE POLICY "Users update own profile (no role change)" ON profiles
   FOR UPDATE
   USING (auth.uid() = id)
@@ -41,8 +45,9 @@ CREATE POLICY "Users update own profile (no role change)" ON profiles
 -- This is handled automatically by Supabase when using the service_role key.
 
 -- ── knowledge_base table ─────────────────────────────────────
--- Already set to authenticated in 004, but re-assert to be safe
 DROP POLICY IF EXISTS "Authenticated users can read knowledge base" ON knowledge_base;
+DROP POLICY IF EXISTS "Authenticated read knowledge_base"           ON knowledge_base;
+
 CREATE POLICY "Authenticated read knowledge_base" ON knowledge_base
   FOR SELECT USING (auth.role() = 'authenticated');
 
