@@ -7,23 +7,21 @@
    - Verify your email address.
 
 2. **Create a new project**
-   - Choose **JavaScript** → **React** (or the framework you use).
+   - Choose **JavaScript** → **Next.js** (or the framework you use).
    - Give the project a name, e.g., `e‑com‑trends‑product‑research`.
    - Click **Create Project**. Sentry will provide a DSN (Data Source Name).
 
 3. **Install the SDK** (npm example)
    ```bash
-   npm install @sentry/react @sentry/tracing
+   npm install @sentry/nextjs
    ```
 
-4. **Initialize Sentry in your code** (e.g., `src/index.js`)
+4. **Initialize Sentry in your code** (e.g., `src/pages/_app.tsx`)
    ```javascript
-   import * as Sentry from "@sentry/react";
-   import { BrowserTracing } from "@sentry/tracing";
+   import * as Sentry from "@sentry/nextjs";
 
    Sentry.init({
      dsn: "YOUR_DSN_HERE",
-     integrations: [new BrowserTracing()],
      // Adjust this value in production
      tracesSampleRate: 1.0,
    });
