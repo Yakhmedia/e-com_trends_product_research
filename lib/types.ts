@@ -38,8 +38,3 @@ export interface TrendsData {
   related_topics_top: RelatedQuery[];
   related_topics_rising: RelatedQuery[];
 }
-
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}

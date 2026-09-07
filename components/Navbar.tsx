@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart2, History, GitCompare, LogOut, Bot } from "lucide-react";
+import { BarChart2, History, GitCompare, LogOut, Bot, Settings } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -14,6 +14,7 @@ const links = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart2 },
   { href: "/history",   label: "History",   icon: History   },
   { href: "/compare",   label: "Compare",   icon: GitCompare },
+  { href: "/settings",  label: "Settings",  icon: Settings   },
 ];
 
 export default function Navbar({ onAgentOpen }: NavbarProps) {

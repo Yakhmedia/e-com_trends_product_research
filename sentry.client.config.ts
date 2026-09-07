@@ -1,7 +1,13 @@
 import * as Sentry from "@sentry/nextjs";
+import { scrubEvent } from "@/lib/sentry-scrub";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+
+  // See sentry.server.config.ts. Defence in depth — the key never reaches
+  // the browser, but breadcrumbs and network errors still get scrubbed.
+  beforeSend: scrubEvent,
+  beforeSendTransaction: scrubEvent,
 
   integrations: [
     Sentry.replayIntegration({

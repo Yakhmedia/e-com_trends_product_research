@@ -37,7 +37,7 @@ function LoginForm() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(
     errorParam === "unauthorized"
-      ? "Access restricted to admins only."
+      ? "Your account doesn't have access yet. Contact your administrator."
       : errorParam === "profile_lookup_failed"
         ? "We could not verify your permissions — the account lookup failed. Try again in a moment; if it persists, contact your administrator."
         : null
@@ -107,7 +107,7 @@ function LoginForm() {
             <BarChart2 className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-theme-text">Product Trends</h1>
-          <p className="text-theme-muted text-sm mt-1">Admin access only</p>
+          <p className="text-theme-muted text-sm mt-1">Invite-only access</p>
         </div>
 
         <div className="bg-theme-surface border border-theme-border rounded-2xl p-8 shadow-[var(--t-shadow)] theme-card">

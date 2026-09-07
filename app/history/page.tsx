@@ -1,50 +1,79 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, Search, TrendingUp, Trash2, ChevronRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { TrendsData } from "@/lib/types";
+import { TimelineDataPoint, RegionData, RelatedQuery } from "@/lib/types";
 
-type HistoryRow = TrendsData & { id: string; fetched_at: string };
+// One row per search event, owned by the current user (RLS on public.searches).
+// The trend payload is embedded from the shared cache; it is null when the
+// cache entry was never written or has since been evicted.
+interface TrendEmbed {
+  interest_over_time: TimelineDataPoint[];
+  interest_by_region: RegionData[];
+  related_queries_rising: RelatedQuery[];
+}
+
+interface HistoryRow {
+  id: string;
+  keyword: string;
+  date_range: string;
+  created_at: string;
+  trends: TrendEmbed | null;
+}
 
 export default function HistoryPage() {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
-  useEffect(() => {
-    fetchHistory();
-  }, []);
-
-  async function fetchHistory() {
+  const fetchHistory = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
-      .from("trends")
-      .select("id, keyword, fetched_at, interest_over_time, interest_by_region, related_queries_rising")
-      .order("fetched_at", { ascending: false })
+      .from("searches")
+      .select(
+        "id, keyword, date_range, created_at, " +
+          "trends ( interest_over_time, interest_by_region, related_queries_rising )"
+      )
+      .order("created_at", { ascending: false })
       .limit(100);
-    setRows((data as HistoryRow[]) ?? []);
+    // supabase-js types a to-one embed as an array; normalise it.
+    const normalised = ((data as unknown as (Omit<HistoryRow, "trends"> & {
+      trends: TrendEmbed | TrendEmbed[] | null;
+    })[]) ?? []).map((r) => ({
+      ...r,
+      trends: Array.isArray(r.trends) ? (r.trends[0] ?? null) : r.trends,
+    }));
+    setRows(normalised);
     setLoading(false);
-  }
+  }, [supabase]);
+
+  useEffect(() => {
+    // Fetch on mount. The rule flags the setState inside fetchHistory; a
+    // load-on-mount is the intended use.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchHistory();
+  }, [fetchHistory]);
 
   async function deleteRow(id: string) {
-    await supabase.from("trends").delete().eq("id", id);
+    // Removes only this user's history entry — never the shared cache row.
+    await supabase.from("searches").delete().eq("id", id);
     setRows((prev) => prev.filter((r) => r.id !== id));
   }
 
   const filtered = rows.filter((r) => r.keyword.includes(search.toLowerCase()));
 
   const getPeak = (row: HistoryRow) => {
-    const vals = (row.interest_over_time as { value: number }[]).map((d) => d.value);
+    const vals = (row.trends?.interest_over_time ?? []).map((d) => d.value);
     return vals.length ? Math.max(...vals) : 0;
   };
 
   const getLatest = (row: HistoryRow) => {
-    const vals = (row.interest_over_time as { value: number }[]);
+    const vals = row.trends?.interest_over_time ?? [];
     return vals.length ? vals[vals.length - 1].value : 0;
   };
 
@@ -55,7 +84,7 @@ export default function HistoryPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-theme-text">Search History</h1>
-            <p className="text-theme-muted text-sm mt-0.5">{rows.length} searches stored in Supabase</p>
+            <p className="text-theme-muted text-sm mt-0.5">{rows.length} of your searches</p>
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted w-4 h-4" />
@@ -85,8 +114,8 @@ export default function HistoryPage() {
             {filtered.map((row) => {
               const peak = getPeak(row);
               const latest = getLatest(row);
-              const topRegion = (row.interest_by_region as { location: string; value: number }[])[0];
-              const risingCount = (row.related_queries_rising as unknown[]).length;
+              const topRegion = (row.trends?.interest_by_region ?? [])[0];
+              const risingCount = (row.trends?.related_queries_rising ?? []).length;
 
               return (
                 <div
@@ -105,7 +134,7 @@ export default function HistoryPage() {
                     <div className="flex items-center gap-4 text-xs text-theme-muted">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {new Date(row.fetched_at).toLocaleString()}
+                        {new Date(row.created_at).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -149,4 +178,3 @@ export default function HistoryPage() {
     </div>
   );
 }
-

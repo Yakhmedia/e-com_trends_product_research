@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminUser } from "@/lib/auth";
+import { getUser } from "@/lib/auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { SupabaseClient } from "@supabase/supabase-js";
 import { TrendsData, TimelineDataPoint, RegionData, RelatedQuery } from "@/lib/types";
 
 const SERP_API_KEY = process.env.SERP_API_KEY;
@@ -104,10 +105,27 @@ function extractTopics(data: Record<string, unknown>, type: "top" | "rising"): R
   });
 }
 
+// Record who searched for what, pointing at the shared cache row that
+// answered. Never fails the request — a missing history entry is cosmetic.
+async function recordSearch(
+  admin: SupabaseClient,
+  userId: string,
+  keyword: string,
+  dateRange: string,
+  trendId: string | null
+) {
+  const { error } = await admin
+    .from("searches")
+    .insert({ user_id: userId, keyword, date_range: dateRange, trend_id: trendId });
+  if (error) console.error("[api/trends] failed to record search:", error.message);
+}
+
 export async function GET(req: NextRequest) {
   // ── Auth guard (defense-in-depth after proxy.ts) ───────────────────────────
-  const user = await getAdminUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Any authenticated user (viewer or admin) may run trend searches.
+  const authed = await getUser();
+  if (!authed) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = authed.user;
 
   // Without this the key interpolates as the string "undefined", SerpAPI
   // rejects every call, and safeFetch turns that into an empty chart with no
@@ -156,7 +174,10 @@ export async function GET(req: NextRequest) {
     .limit(1)
     .single();
 
-  if (cached) return NextResponse.json({ data: cached, cached: true });
+  if (cached) {
+    await recordSearch(adminClient, user.id, kw, dateParam, cached.id);
+    return NextResponse.json({ data: cached, cached: true });
+  }
 
   // ── Parallel SerpAPI calls ─────────────────────────────────────────────────
   const [timelineData, geoData, queriesData, topicsData] = await Promise.all([
@@ -186,8 +207,10 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.error("Supabase insert error:", error.message);
+    await recordSearch(adminClient, user.id, kw, dateParam, null);
     return NextResponse.json({ data: trendsData, cached: false });
   }
 
+  await recordSearch(adminClient, user.id, kw, dateParam, saved.id);
   return NextResponse.json({ data: saved, cached: false });
 }
