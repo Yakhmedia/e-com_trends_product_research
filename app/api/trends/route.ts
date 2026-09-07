@@ -1,26 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminUser, createSupabaseServerClient } from "@/lib/auth";
+import { getAdminUser } from "@/lib/auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { TrendsData, TimelineDataPoint, RegionData, RelatedQuery } from "@/lib/types";
 
-const SERP_API_KEY = process.env.SERP_API_KEY!;
+const SERP_API_KEY = process.env.SERP_API_KEY;
 
-// ── Rate limiting (in-memory — acceptable for single-instance / low traffic) ─
-const rateLimitMap = new Map<string, { count: number; reset: number }>();
-const RATE_LIMIT = 30;          // requests per window
-const RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(userId);
-  if (!entry || now > entry.reset) {
-    rateLimitMap.set(userId, { count: 1, reset: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
+// ── Rate limiting ────────────────────────────────────────────────────────────
+// Backed by public.rate_limits so the counter survives cold starts and is
+// shared across instances. See lib/rate-limit.ts.
+const RATE_LIMIT = 30;                  // requests per window
+const RATE_WINDOW_SECONDS = 60 * 60;    // 1 hour
 
 // ── Input validation ─────────────────────────────────────────────────────────
 const ALLOWED_DATE_PATTERNS = [
@@ -115,15 +105,27 @@ function extractTopics(data: Record<string, unknown>, type: "top" | "rising"): R
 }
 
 export async function GET(req: NextRequest) {
-  // ── Auth guard (defense-in-depth after middleware) ─────────────────────────
+  // ── Auth guard (defense-in-depth after proxy.ts) ───────────────────────────
   const user = await getAdminUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // ── Rate limiting ──────────────────────────────────────────────────────────
-  if (!checkRateLimit(user.id)) {
+  // Without this the key interpolates as the string "undefined", SerpAPI
+  // rejects every call, and safeFetch turns that into an empty chart with no
+  // visible error. Fail loudly instead.
+  if (!SERP_API_KEY) {
+    console.error("[api/trends] SERP_API_KEY is not configured");
     return NextResponse.json(
-      { error: "Rate limit exceeded. Max 30 searches per hour." },
-      { status: 429, headers: { "Retry-After": "3600" } }
+      { error: "Trends provider is not configured on the server." },
+      { status: 503 }
+    );
+  }
+
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+  const rate = await checkRateLimit("trends", user.id, RATE_LIMIT, RATE_WINDOW_SECONDS);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: `Rate limit exceeded. Max ${RATE_LIMIT} searches per hour.` },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfter) } }
     );
   }
 

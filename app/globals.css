@@ -210,3 +210,20 @@ body {
   .focus\:ring-theme-accent:focus { --tw-ring-color: var(--t-accent); }
   .divide-theme-border > * + * { border-color: var(--t-border); }
 }
+
+/* ── Autofill ────────────────────────────────────────────────────────────────
+   Chrome paints :-webkit-autofill fields with its own background and text
+   colour, which wins over the Tailwind utilities and leaves autofilled inputs
+   pale lavender against the dark card. The background cannot be overridden
+   directly, but an inset box-shadow covers it, and -webkit-text-fill-color
+   overrides the text. Uses theme tokens, so it follows every theme × mode. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  box-shadow: inset 0 0 0 1000px var(--t-elevated) !important;
+  -webkit-text-fill-color: var(--t-text) !important;
+  caret-color: var(--t-text);
+  /* Delay Chrome's own transition-back long enough that it never shows. */
+  transition: background-color 5000000s ease-in-out 0s;
+}

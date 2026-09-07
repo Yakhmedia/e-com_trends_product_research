@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import * as Sentry from "@sentry/nextjs";
 import { getAdminUser } from "@/lib/auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { ChatMessage, TrendsData } from "@/lib/types";
 import { classifyTrend } from "@/lib/trend-classifier";
 
@@ -13,21 +15,9 @@ function getOpenAI(): OpenAI {
 }
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-const rateLimitMap = new Map<string, { count: number; reset: number }>();
+// Backed by public.rate_limits — see lib/rate-limit.ts.
 const RATE_LIMIT = 60;
-const RATE_WINDOW_MS = 60 * 60 * 1000;
-
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(userId);
-  if (!entry || now > entry.reset) {
-    rateLimitMap.set(userId, { count: 1, reset: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
+const RATE_WINDOW_SECONDS = 60 * 60;
 
 // ── Knowledge base search ─────────────────────────────────────────────────────
 async function searchKnowledgeBase(query: string, limit = 3): Promise<string> {
@@ -43,11 +33,23 @@ async function searchKnowledgeBase(query: string, limit = 3): Promise<string> {
 
   const adminClient = getSupabaseAdminClient();
 
-  const { data } = await adminClient
+  const { data, error } = await adminClient
     .from("knowledge_base")
     .select("title, content, category")
     .textSearch("content", words, { type: "websearch", config: "english" })
     .limit(limit);
+
+  if (error) {
+    // Most likely cause: SUPABASE_SERVICE_ROLE_KEY missing, so this is an anon
+    // client and the admin-only RLS policy (migration 007) hides every row.
+    // Silently losing the agent's grounding context is worse than knowing.
+    console.error("[api/agent] knowledge base search failed:", error.message);
+    Sentry.captureException(new Error(`Knowledge base search failed: ${error.message}`), {
+      level: "warning",
+      tags: { subsystem: "knowledge-base" },
+    });
+    return "";
+  }
 
   if (!data?.length) {
     const keyword = query.split(" ")[0];
@@ -56,7 +58,17 @@ async function searchKnowledgeBase(query: string, limit = 3): Promise<string> {
       .select("title, content")
       .ilike("content", `%${keyword}%`)
       .limit(2);
-    if (!fallback?.length) return "";
+    if (!fallback?.length) {
+      // The agent still answers, but ungrounded. Surface it rather than let an
+      // empty or unreadable table degrade every answer invisibly.
+      console.warn(`[api/agent] knowledge base returned no rows for terms: "${words}"`);
+      Sentry.captureMessage("Knowledge base search returned no results", {
+        level: "warning",
+        tags: { subsystem: "knowledge-base" },
+        extra: { terms: words },
+      });
+      return "";
+    }
     return fallback.map((r) => `[${r.title}]\n${r.content}`).join("\n\n");
   }
 
@@ -68,11 +80,20 @@ export async function POST(req: NextRequest) {
   const user = await getAdminUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // ── Rate limiting ─────────────────────────────────────────────────────────
-  if (!checkRateLimit(user.id)) {
+  if (!process.env.OPENAI_API_KEY) {
+    console.error("[api/agent] OPENAI_API_KEY is not configured");
     return NextResponse.json(
-      { error: "Rate limit exceeded. Max 60 messages per hour." },
-      { status: 429, headers: { "Retry-After": "3600" } }
+      { error: "AI analyst is not configured on the server." },
+      { status: 503 }
+    );
+  }
+
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  const rate = await checkRateLimit("agent", user.id, RATE_LIMIT, RATE_WINDOW_SECONDS);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: `Rate limit exceeded. Max ${RATE_LIMIT} messages per hour.` },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfter) } }
     );
   }
 
@@ -132,15 +153,26 @@ Rising topics: ${trends.related_topics_rising.slice(0, 3).map((t) => t.query).jo
 
 ${kbContext ? `━━━ KNOWLEDGE BASE CONTEXT ━━━\n${kbContext}` : ""}`;
 
-  const completion = await getOpenAI().chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...validMessages,
-    ],
-    max_tokens: 600,
-    temperature: 0.65,
-  });
+  try {
+    const completion = await getOpenAI().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...validMessages,
+      ],
+      max_tokens: 600,
+      temperature: 0.65,
+    });
 
-  return NextResponse.json({ message: completion.choices[0].message.content });
+    return NextResponse.json({ message: completion.choices[0].message.content });
+  } catch (err) {
+    // An upstream failure (quota, outage, revoked key) would otherwise surface
+    // as an unhandled 500 with no message the UI can render.
+    console.error("[api/agent] completion failed:", err);
+    Sentry.captureException(err, { tags: { subsystem: "openai" } });
+    return NextResponse.json(
+      { error: "The AI analyst is temporarily unavailable. Please try again." },
+      { status: 502 }
+    );
+  }
 }

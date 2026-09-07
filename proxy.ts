@@ -1,18 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/update-password"];
 
 // API routes that require admin auth — return JSON errors, not redirects
 const PROTECTED_API_PATHS = ["/api/trends", "/api/agent"];
 
-export async function middleware(req: NextRequest) {
+// Supabase's setAll writes refreshed tokens onto `res`. Returning a fresh
+// NextResponse for a redirect or an error would discard them, signing out a
+// user whose token happened to be mid-refresh. Carry them across instead.
+function withCookies(from: NextResponse, to: NextResponse): NextResponse {
+  from.cookies.getAll().forEach((cookie) => to.cookies.set(cookie));
+  return to;
+}
+
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Always allow public pages
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
-  let res = NextResponse.next();
+  const res = NextResponse.next();
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,29 +43,57 @@ export async function middleware(req: NextRequest) {
 
   if (!user) {
     if (isApiRoute) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return withCookies(res, NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
     }
     const loginUrl = req.nextUrl.clone();
     loginUrl.pathname = "/login";
+    loginUrl.search = "";
     loginUrl.searchParams.set("redirectTo", pathname);
-    return NextResponse.redirect(loginUrl);
+    return withCookies(res, NextResponse.redirect(loginUrl));
   }
 
-  // Check admin role
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  // Role comes from the JWT when the custom access-token hook is enabled
+  // (migration 008). Fall back to a profiles query when the claim is absent —
+  // hook not yet enabled, or a session issued before it was.
+  // getAdminUser() re-checks against the database and stays authoritative.
+  let role = (user.app_metadata as { role?: string } | undefined)?.role;
 
-  if (profile?.role !== "admin") {
+  if (!role) {
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    // A failed lookup is not the same as "you are not an admin". Reporting it
+    // as unauthorized sends the user round a silent redirect loop with no clue
+    // that the database is what is actually broken.
+    if (error) {
+      console.error("[proxy] profile lookup failed:", error.message);
+      if (isApiRoute) {
+        return withCookies(
+          res,
+          NextResponse.json({ error: "Could not verify permissions" }, { status: 503 })
+        );
+      }
+      const errUrl = req.nextUrl.clone();
+      errUrl.pathname = "/login";
+      errUrl.search = "";
+      errUrl.searchParams.set("error", "profile_lookup_failed");
+      return withCookies(res, NextResponse.redirect(errUrl));
+    }
+    role = profile?.role;
+  }
+
+  if (role !== "admin") {
     if (isApiRoute) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return withCookies(res, NextResponse.json({ error: "Forbidden" }, { status: 403 }));
     }
     const loginUrl = req.nextUrl.clone();
     loginUrl.pathname = "/login";
+    loginUrl.search = "";
     loginUrl.searchParams.set("error", "unauthorized");
-    return NextResponse.redirect(loginUrl);
+    return withCookies(res, NextResponse.redirect(loginUrl));
   }
 
   return res;
@@ -65,8 +101,12 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Protect all page routes (excluding Next.js internals and static files)
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    // Protect all page routes. Excludes Next.js internals, static files, and:
+    //   monitoring — the Sentry tunnel (next.config.ts tunnelRoute). Redirecting
+    //     it means errors thrown while signed out never reach Sentry.
+    //   api        — route handlers do their own auth via getAdminUser(); the
+    //     two below are still matched explicitly for defense in depth.
+    "/((?!_next/static|_next/image|favicon.ico|monitoring|api).*)",
     // Explicitly protect these API routes
     "/api/trends",
     "/api/agent",
