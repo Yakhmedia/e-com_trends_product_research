@@ -54,10 +54,16 @@ export default function AIAgent({ open, onClose, trendsData }: AIAgentProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: [...messages, userMsg], trendsContext: trendsData }),
       });
-      const json = await res.json() as { message: string };
-      setMessages((prev) => [...prev, { role: "assistant", content: json.message }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, something went wrong. Please try again." }]);
+      const json = await res.json() as { message?: string; error?: string };
+      
+      if (!res.ok) {
+        throw new Error(json.error || "An error occurred");
+      }
+      
+      setMessages((prev) => [...prev, { role: "assistant", content: json.message || "" }]);
+    } catch (err: any) {
+      const errorMsg = err instanceof Error ? err.message : "Sorry, something went wrong. Please try again.";
+      setMessages((prev) => [...prev, { role: "assistant", content: errorMsg }]);
     } finally {
       setLoading(false);
     }

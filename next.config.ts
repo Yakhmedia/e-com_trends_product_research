@@ -22,7 +22,9 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withSentryConfig(nextConfig, {
+const isDev = process.env.NODE_ENV === "development";
+
+export default isDev ? nextConfig : withSentryConfig(nextConfig, {
   org: "yakh",
   project: "e-com_trends_product_research",
   silent: !process.env.CI,
